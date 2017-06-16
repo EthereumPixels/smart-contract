@@ -1,0 +1,17 @@
+{
+  "name": "ethereum-pixels",
+  "version": "0.0.1",
+  "description": "A smart contract to power a dynamic pixel grid",
+  "main": "truffle.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "truffle test"
+  },
+  "author": "Raven Jiang",
+  "license": "ISC",
+  "dependencies": {
+    "web3": "^0.19.0"
+  }
+}
