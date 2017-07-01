@@ -60,7 +60,6 @@ contract Grid {
   event PixelColor(uint16 row, uint16 col, address owner, uint24 color);
   event PixelPrice(uint16 row, uint16 col, address owner, uint price);
   event UserMessage(address user, string message);
-  event UserName(address user, string name);
 
   //============================================================================
   // Basic API and helper functions
@@ -208,5 +207,6 @@ contract Grid {
 
   function setUserMessage(string message) {
     users[msg.sender].message = message;
+    UserMessage(msg.sender, message);
   }
 }

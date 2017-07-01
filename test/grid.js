@@ -358,4 +358,78 @@ contract('Grid', function(accounts) {
 
     return p;
   });
+
+
+  //============================================================================
+  // User
+  //============================================================================
+
+  it('returns an empty message for new users', function() {
+    let grid;
+
+    let p = Grid.deployed().then(function(instance) {
+      grid = instance;
+    });
+
+    p = p.then(function() {
+      return grid.getUserMessage.call(accounts[2]);
+    }).then(function(message) {
+      assert.equal(message, '', 'Message is not empty');
+    });
+
+    return p;
+  });
+
+  it('allows user to set message', function() {
+    let grid;
+    const litany = `
+      I must not fear.
+      Fear is the mind-killer.
+      Fear is the little-death that brings total obliteration.
+      I will face my fear.
+      I will permit it to pass over me and through me.
+      And when it has gone past I will turn the inner eye to see its path.
+      Where the fear has gone there will be nothing. Only I will remain.
+    `;
+
+    let p = Grid.deployed().then(function(instance) {
+      grid = instance;
+    });
+
+    // Set new message
+    p = p.then(function() {
+      return grid.setUserMessage(litany, {from: accounts[2]});
+    });
+
+    // Verify the message
+    p = p.then(function() {
+      return grid.getUserMessage(accounts[2]);
+    }).then(function(message) {
+      assert.equal(message, litany, 'Message was not updated');
+    });
+
+    return p;
+  });
+
+  it('allows user to set a unicode message', function() {
+    let grid;
+
+    let p = Grid.deployed().then(function(instance) {
+      grid = instance;
+    });
+
+    // Set new message
+    p = p.then(function() {
+      return grid.setUserMessage('ローマでは三連休', {from: accounts[2]});
+    });
+
+    // Verify the message
+    p = p.then(function() {
+      return grid.getUserMessage(accounts[2]);
+    }).then(function(message) {
+      assert.equal(message, 'ローマでは三連休', 'Message was not updated');
+    });
+
+    return p;
+  });
 });
