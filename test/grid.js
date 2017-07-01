@@ -302,4 +302,60 @@ contract('Grid', function(accounts) {
       assert.equal(color.valueOf(), RGB[2], 'Color was not updated');
     });
   });
+
+  it('allows owner to transfer ownership', function() {
+    const price = config.DEFAULT_PRICE;
+    let grid;
+
+    let p = Grid.deployed().then(function(instance) {
+      grid = instance;
+    });
+
+    // Purchase pixel
+    p = p.then(function() {
+      return grid.buyPixel(7, 7, price, RGB[1], {from: accounts[3], value: price});
+    });
+
+    // Perform transfer
+    p = p.then(function() {
+      return grid.transferPixel(7, 7, accounts[4], {from: accounts[3]});
+    });
+
+    // Verify new owner
+    p = p.then(function() {
+      return grid.getPixelOwner.call(7, 7);
+    }).then(function(owner) {
+      assert.equal(owner, accounts[4], 'Owner was not updated');
+    });
+
+    return p;
+  });
+
+  it('disallows non-owner from transferring ownership', function() {
+    const price = config.DEFAULT_PRICE;
+    let grid;
+
+    let p = Grid.deployed().then(function(instance) {
+      grid = instance;
+    });
+
+    // Purchase pixel
+    p = p.then(function() {
+      return grid.buyPixel(8, 8, price, RGB[0], {from: accounts[3], value: price});
+    });
+
+    // Attempt to perform transfer
+    p = p.then(function() {
+      return grid.transferPixel(8, 8, accounts[5], {from: accounts[4]});
+    }).then(assert.fail).catch(assertVMException);
+
+    // Verify owner did not change
+    p = p.then(function() {
+      return grid.getPixelOwner.call(8, 8);
+    }).then(function(owner) {
+      assert.equal(owner, accounts[3], 'Owner should not be updated');
+    })
+
+    return p;
+  });
 });
