@@ -5,8 +5,8 @@ module.exports = function(deployer) {
   deployer.deploy(
     Grid,
     config.GRID_SIZE,
-    config.MIN_PRICE,
-    config.GROWTH_LIMIT,
+    config.DEFAULT_PRICE,
     config.FEE_RATIO,
+    {gas: 4499995},
   );
 };

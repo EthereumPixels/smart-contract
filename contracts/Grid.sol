@@ -1,33 +1,74 @@
 pragma solidity ^0.4.4;
 
 contract Grid {
+  // The account address with admin privilege to this contract
+  // This is also the default owner of all unowned pixels
   address admin;
+
+  // The size in number of pixels of the square grid on each side
   uint16 public size;
-  uint public minPrice;
-  uint public growthLimit;
+
+  // The default price of unowned pixels
+  uint public defaultPrice;
+
+  // The price-fee ratio used in the following formula:
+  //   salePrice / feeRatio = fee
+  //   payout = salePrice - fee
+  // Higher feeRatio equates to lower fee percentage
   uint public feeRatio;
-  uint24[] validColors;
+
+  // A record of a user who may at any time be an owner of pixels or simply has
+  // unclaimed withdrawal from a failed purchase or a successful sale
+  struct User {
+    // Number of Wei that can be withdrawn by the user
+    uint pendingWithdrawal;
+
+    // Number of Wei in total ever credited to the user as a result of a
+    // successful sale
+    uint totalSales;
+
+    // An optional message that is shown in some parts of the UI and in the
+    // details pane of every owned pixel
+    string message;
+  }
 
   struct Pixel {
+    // User with permission to modify the pixel. A successful sale of the
+    // pixel will result in payouts being credited to the pendingWithdrawal of
+    // the User
     address owner;
-    uint24 color;
-    string message;
-    uint lastSoldPrice;
+
+    // Current listed price of the pixel
     uint price;
+
+    // Current color of the pixel. A valid of 0 is considered transparent and
+    // not black. Use 1 for black.
+    uint24 color;
   }
+
+  // The state of the pixel grid
   mapping(uint32 => Pixel) pixels;
-  mapping(address => uint) pendingWithdrawals;
 
-  event PixelTransfer(uint16 row, uint16 col, address prevOwner, address newOwner);
+  // The state of all users who have transacted with this contract
+  mapping(address => User) users;
+
+  //============================================================================
+  // Events
+  //============================================================================
+
+  event PixelTransfer(uint16 row, uint16 col, uint price, address prevOwner, address newOwner);
   event PixelColor(uint16 row, uint16 col, address owner, uint24 color);
-  event PixelMessage(uint16 row, uint16 col, address owner, string message);
   event PixelPrice(uint16 row, uint16 col, address owner, uint price);
-  event ValidColors(uint24[] colors);
+  event UserMessage(address user, string message);
+  event UserName(address user, string name);
 
-  function Grid(uint16 _size, uint _minPrice, uint _growthLimit, uint _feeRatio) {
+  //============================================================================
+  // Basic API and helper functions
+  //============================================================================
+
+  function Grid(uint16 _size, uint _defaultPrice, uint _feeRatio) {
     admin = msg.sender;
-    growthLimit = _growthLimit;
-    minPrice = _minPrice;
+    defaultPrice = _defaultPrice;
     feeRatio = _feeRatio;
     size = _size;
   }
@@ -39,19 +80,6 @@ contract Grid {
 
   modifier onlyOwner(uint16 row, uint16 col) {
     if (msg.sender != getPixelOwner(row, col)) throw;
-    _;
-  }
-
-  modifier validateColor(uint24 color) {
-    bool valid = validColors.length == 0;
-    if (!valid) {
-      for (uint i = 0; i < validColors.length; i++) {
-        if (color == validColors[i]) {
-          valid = true;
-        }
-      }
-    }
-    if (!valid) throw;
     _;
   }
 
@@ -70,30 +98,13 @@ contract Grid {
     admin = _admin;
   }
 
-  function setValidColors(uint24[] _validColors) {
-    validColors = _validColors;
-    ValidColors(_validColors);
-  }
-
   //============================================================================
-  // Public Transaction API
+  // Public Querying API
   //============================================================================
-
-  function checkPendingWithdrawal() constant returns (uint) {
-    return pendingWithdrawals[msg.sender];
-  }
-
-  function withdraw() {
-    if (pendingWithdrawals[msg.sender] > 0) {
-      uint amount = pendingWithdrawals[msg.sender];
-      pendingWithdrawals[msg.sender] = 0;
-      msg.sender.transfer(amount);
-    }
-  }
 
   function getPixelColor(uint16 row, uint16 col) constant returns (uint24) {
     uint32 key = getKey(row, col);
-    if (pixels[key].lastSoldPrice == 0) {
+    if (pixels[key].owner == 0) {
       return 0;
     }
     return pixels[key].color;
@@ -102,7 +113,7 @@ contract Grid {
 
   function getPixelOwner(uint16 row, uint16 col) constant returns (address) {
     uint32 key = getKey(row, col);
-    if (pixels[key].lastSoldPrice == 0) {
+    if (pixels[key].owner == 0) {
       return admin;
     }
     return pixels[key].owner;
@@ -110,14 +121,34 @@ contract Grid {
 
   function getPixelPrice(uint16 row, uint16 col) constant returns (uint) {
     uint32 key = getKey(row, col);
-    if (pixels[key].lastSoldPrice == 0) {
-      return minPrice;
+    if (pixels[key].owner == 0) {
+      return defaultPrice;
     }
     return pixels[key].price;
   }
 
-  function buyPixel(uint16 row, uint16 col, uint newPrice) payable {
-    pendingWithdrawals[msg.sender] += msg.value;
+  function getUserMessage(address user) constant returns (string) {
+    return users[user].message;
+  }
+
+  //============================================================================
+  // Public Transaction API
+  //============================================================================
+
+  function checkPendingWithdrawal() constant returns (uint) {
+    return users[msg.sender].pendingWithdrawal;
+  }
+
+  function withdraw() {
+    if (users[msg.sender].pendingWithdrawal > 0) {
+      uint amount = users[msg.sender].pendingWithdrawal;
+      users[msg.sender].pendingWithdrawal = 0;
+      msg.sender.transfer(amount);
+    }
+  }
+
+  function buyPixel(uint16 row, uint16 col, uint newPrice, uint24 newColor) payable {
+    users[msg.sender].pendingWithdrawal += msg.value;
     uint32 key = getKey(row, col);
     uint price = getPixelPrice(row, col);
     address owner = getPixelOwner(row, col);
@@ -128,26 +159,34 @@ contract Grid {
 
     uint fee = msg.value / feeRatio;
     uint payout = msg.value - fee;
-    pendingWithdrawals[msg.sender] -= msg.value;
-    pendingWithdrawals[admin] += fee;
-    pendingWithdrawals[owner] += payout;
-    pixels[key].lastSoldPrice = price;
+
+    users[msg.sender].pendingWithdrawal -= msg.value;
+    users[admin].pendingWithdrawal += fee;
+    users[owner].pendingWithdrawal += payout;
+    users[owner].totalSales += payout;
+
     pixels[key].price = price;
     pixels[key].owner = msg.sender;
 
-    PixelTransfer(row, col, owner, msg.sender);
+    PixelTransfer(row, col, price, owner, msg.sender);
     setPixelPrice(row, col, newPrice);
+    setPixelColor(row, col, newColor);
   }
 
   //============================================================================
   // Owner Management API
   //============================================================================
 
-  function getValidColors() constant returns(uint24[]) {
-    return validColors;
+  function transferPixel(uint16 row, uint16 col, address newOwner) onlyOwner(row, col) {
+    uint32 key = getKey(row, col);
+    address owner = pixels[key].owner;
+    if (owner != newOwner) {
+      pixels[key].owner = newOwner;
+      PixelTransfer(row, col, 0, owner, newOwner);
+    }
   }
 
-  function setPixelColor(uint16 row, uint16 col, uint24 color) onlyOwner(row, col) validateColor(color) {
+  function setPixelColor(uint16 row, uint16 col, uint24 color) onlyOwner(row, col) {
     uint32 key = getKey(row, col);
     if (pixels[key].color != color) {
       pixels[key].color = color;
@@ -155,23 +194,19 @@ contract Grid {
     }
   }
 
-  function setPixelMessage(uint16 row, uint16 col, string message) onlyOwner(row, col) {
-    uint32 key = getKey(row, col);
-    pixels[key].message = message;
-    PixelMessage(row, col, pixels[key].owner, message);
-  }
-
   function setPixelPrice(uint16 row, uint16 col, uint newPrice) onlyOwner(row, col) {
     uint32 key = getKey(row, col);
-    uint lastSoldPrice = pixels[key].lastSoldPrice;
-
-    // Limit growth rate of list price
-    if (newPrice > lastSoldPrice * growthLimit) {
-      newPrice = lastSoldPrice * growthLimit;
-    }
     if (pixels[key].price != newPrice) {
       pixels[key].price = newPrice;
       PixelPrice(row, col, pixels[key].owner, newPrice);
     }
+  }
+
+  //============================================================================
+  // User Management API
+  //============================================================================
+
+  function setUserMessage(string message) {
+    users[msg.sender].message = message;
   }
 }
