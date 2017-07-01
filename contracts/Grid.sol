@@ -130,6 +130,10 @@ contract Grid {
     return users[user].message;
   }
 
+  function getUserTotalSales(address user) constant returns (uint) {
+    return users[user].totalSales;
+  }
+
   //============================================================================
   // Public Transaction API
   //============================================================================
