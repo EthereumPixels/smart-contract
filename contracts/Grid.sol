@@ -97,6 +97,14 @@ contract Grid {
     admin = _admin;
   }
 
+  function setFeeRatio(uint _feeRatio) onlyAdmin {
+    feeRatio = _feeRatio;
+  }
+
+  function setDefaultPrice(uint _defaultPrice) onlyAdmin {
+    defaultPrice = _defaultPrice;
+  }
+
   //============================================================================
   // Public Querying API
   //============================================================================
