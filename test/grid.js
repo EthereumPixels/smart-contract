@@ -101,6 +101,28 @@ contract('Grid', function(accounts) {
     }).then(assert.fail).catch(assertVMException);
   });
 
+  it('allows admin to successfully change an unowned pixel', function() {
+    let grid;
+
+    let p = Grid.deployed().then(function(instance) {
+      grid = instance;
+    });
+
+    p = p.then(function() {
+      return grid.getPixelOwner(9, 9);
+    }).then(function(owner) {
+      assert.equal(owner, admin, 'Pixel does not belong to admin');
+    });
+
+    p = p.then(function() {
+      return grid.setPixelColor(9, 9, RGB[2], {from: admin});
+    }).then(function() {
+      return grid.getPixelColor.call(9, 9);
+    }).then(function(color) {
+      assert.equal(color.valueOf(), RGB[2].valueOf(), 'Color was not updated');
+    });
+  });
+
   //============================================================================
   // Transactions
   //============================================================================

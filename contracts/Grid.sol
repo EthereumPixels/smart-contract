@@ -111,9 +111,6 @@ contract Grid {
 
   function getPixelColor(uint16 row, uint16 col) constant returns (uint24) {
     uint32 key = getKey(row, col);
-    if (pixels[key].owner == 0) {
-      return 0;
-    }
     return pixels[key].color;
   }
 
