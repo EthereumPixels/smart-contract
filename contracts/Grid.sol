@@ -17,6 +17,10 @@ contract Grid {
   // Higher feeRatio equates to lower fee percentage
   uint public feeRatio;
 
+  // The price increment rate used in the following formula:
+  //   price = prevPrice + (prevPrice * incrementRate / 100);
+  uint public incrementRate;
+
   // A record of a user who may at any time be an owner of pixels or simply has
   // unclaimed withdrawal from a failed purchase or a successful sale
   struct User {
@@ -65,11 +69,16 @@ contract Grid {
   // Basic API and helper functions
   //============================================================================
 
-  function Grid(uint16 _size, uint _defaultPrice, uint _feeRatio) {
+  function Grid(
+    uint16 _size,
+    uint _defaultPrice,
+    uint _feeRatio,
+    uint _incrementRate) {
     admin = msg.sender;
     defaultPrice = _defaultPrice;
     feeRatio = _feeRatio;
     size = _size;
+    incrementRate = _incrementRate;
   }
 
   modifier onlyAdmin {
@@ -114,7 +123,6 @@ contract Grid {
     return pixels[key].color;
   }
 
-
   function getPixelOwner(uint16 row, uint16 col) constant returns (address) {
     uint32 key = getKey(row, col);
     if (pixels[key].owner == 0) {
@@ -155,29 +163,37 @@ contract Grid {
     }
   }
 
-  function buyPixel(uint16 row, uint16 col, uint newPrice, uint24 newColor) payable {
-    users[msg.sender].pendingWithdrawal += msg.value;
+  function buyPixel(uint16 row, uint16 col, uint24 newColor) payable {
+    // Return instead of letting getKey throw here to correctly refund the
+    // transaction by updating the user balance in user.pendingWithdrawal
+    if (row >= size || col >= size) {
+      users[msg.sender].pendingWithdrawal += msg.value;
+      return;
+    }
+
     uint32 key = getKey(row, col);
     uint price = getPixelPrice(row, col);
     address owner = getPixelOwner(row, col);
 
+    // Return instead of throw here to correctly refund the transaction by
+    // updating the user balance in user.pendingWithdrawal
     if (msg.value < price) {
-      throw;
+      users[msg.sender].pendingWithdrawal += msg.value;
+      return;
     }
 
     uint fee = msg.value / feeRatio;
     uint payout = msg.value - fee;
 
-    users[msg.sender].pendingWithdrawal -= msg.value;
     users[admin].pendingWithdrawal += fee;
     users[owner].pendingWithdrawal += payout;
     users[owner].totalSales += payout;
 
-    pixels[key].price = price;
+    // Increase the price automatically based on the global incrementRate
+    pixels[key].price = price + (price * incrementRate / 100);
     pixels[key].owner = msg.sender;
 
     PixelTransfer(row, col, price, owner, msg.sender);
-    setPixelPrice(row, col, newPrice);
     setPixelColor(row, col, newColor);
   }
 
@@ -204,10 +220,12 @@ contract Grid {
 
   function setPixelPrice(uint16 row, uint16 col, uint newPrice) onlyOwner(row, col) {
     uint32 key = getKey(row, col);
-    if (pixels[key].price != newPrice) {
-      pixels[key].price = newPrice;
-      PixelPrice(row, col, pixels[key].owner, newPrice);
-    }
+    // The owner can only lower the price. Price increases are determined by
+    // the global incrementRate
+    require(pixels[key].price > newPrice);
+
+    pixels[key].price = newPrice;
+    PixelPrice(row, col, pixels[key].owner, newPrice);
   }
 
   //============================================================================

@@ -3,6 +3,7 @@ const Grid = artifacts.require('./Grid.sol');
 const config = require('../config');
 const web3 = Grid.web3;
 
+const INCREMENT_RATIO = 1 + (config.INCREMENT_RATE / 100);
 const VALID_ROW = parseInt(config.GRID_SIZE / 2);
 const VALID_COL = parseInt(config.GRID_SIZE / 3);
 const RGB = [
@@ -18,17 +19,40 @@ function assertVMException(err) {
 contract('Grid', function(accounts) {
   const admin = accounts[0];
 
-  it('initializes with the correct size, defaultPrice and growthLimit', function() {
+  it('initializes with the correct size, defaultPrice and incrementRate', function() {
     let grid;
-    return Grid.deployed().then(function(instance) {
+
+    let p = Grid.deployed().then(function(instance) {
       grid = instance;
+    });
+
+    p = p.then(function() {
       return grid.size.call();
     }).then(function(size) {
       assert.equal(size.valueOf(), config.GRID_SIZE, 'The size is wrong');
+    });
+
+    p = p.then(function() {
       return grid.defaultPrice.call();
     }).then(function(defaultPrice) {
-      assert.equal(defaultPrice.valueOf(), config.DEFAULT_PRICE, 'The defaultPrice is wrong');
+      assert.equal(
+        defaultPrice.valueOf(),
+        config.DEFAULT_PRICE,
+        'The defaultPrice is wrong',
+      );
     });
+
+    p = p.then(function() {
+      return grid.incrementRate.call();
+    }).then(function(incrementRate) {
+      assert.equal(
+        incrementRate.valueOf(),
+        config.INCREMENT_RATE,
+        'The incrementRate is wrong',
+      );
+    });
+
+    return p;
   });
 
   it('calculates the key correctly', function() {
@@ -121,6 +145,8 @@ contract('Grid', function(accounts) {
     }).then(function(color) {
       assert.equal(color.valueOf(), RGB[2].valueOf(), 'Color was not updated');
     });
+
+    return p;
   });
 
   //============================================================================
@@ -132,13 +158,21 @@ contract('Grid', function(accounts) {
     const price = config.DEFAULT_PRICE;
     let grid, adminBalance;
 
-    return Grid.deployed().then(function(instance) {
+    let p = Grid.deployed().then(function(instance) {
       grid = instance;
+    });
+
+    // Clear out any existing balance
+    p = p.then(function() {
+      return grid.withdraw({from: admin});
+    });
+
+    p = p.then(function() {
       return grid.getPixelOwner.call(0, 0);
     }).then(function(owner) {
       assert.equal(owner, admin, 'Owner is wrong');
       const transaction = {from: buyer, value: price};
-      return grid.buyPixel(0, 0, price.times(3), RGB[1], transaction);
+      return grid.buyPixel(0, 0, RGB[1], transaction);
     }).then(function() {
       return grid.getPixelOwner.call(0, 0);
     }).then(function(owner) {
@@ -163,18 +197,20 @@ contract('Grid', function(accounts) {
         'Admin was not paid',
       );
     });
+
+    return p;
   });
 
   it('allows secondary pixel purchase', function() {
     const primaryBuyer = accounts[1];
     const secondaryBuyer = accounts[2];
-    const resalePrice = config.DEFAULT_PRICE.times(1.5);
+    const resalePrice = config.DEFAULT_PRICE.times(INCREMENT_RATIO);
     let grid;
 
     return Grid.deployed().then(function(instance) {
       grid = instance;
       const transaction = {from: primaryBuyer, value: config.DEFAULT_PRICE};
-      return grid.buyPixel(1, 1, resalePrice, RGB[0], transaction);
+      return grid.buyPixel(1, 1, RGB[0], transaction);
     }).then(function() {
       return grid.getPixelColor.call(1, 1);
     }).then(function(color) {
@@ -188,7 +224,7 @@ contract('Grid', function(accounts) {
         'Price was not updated',
       );
       const transaction = {from: secondaryBuyer, value: price};
-      return grid.buyPixel(1, 1, resalePrice.times(1.2), RGB[2], transaction);
+      return grid.buyPixel(1, 1, RGB[2], transaction);
     }).then(function() {
       return grid.getPixelOwner(1, 1);
     }).then(function(owner) {
@@ -208,25 +244,47 @@ contract('Grid', function(accounts) {
   });
 
   it('rejects below minimum price', function() {
-    const buyer = accounts[2];
+    const buyer = accounts[6];
     const price = config.DEFAULT_PRICE.dividedToIntegerBy(2);
     let grid;
 
-    return Grid.deployed().then(function(instance) {
+    let p = Grid.deployed().then(function(instance) {
       grid = instance;
+    });
+
+    // Clear out any existing balance
+    p = p.then(function() {
+      return grid.withdraw({from: buyer});
+    })
+
+    p = p.then(function() {
       const transaction = {from: buyer, value: price};
-      return grid.buyPixel(2, 2, config.DEFAULT_PRICE, RGB[1], transaction);
-    }).then(assert.fail).catch(assertVMException).then(function() {
+      return grid.buyPixel(2, 2, RGB[1], transaction);
+    }).then(function() {
       return grid.getPixelOwner.call(2, 2);
+    }).then(function(owner) {
+      assert.notEqual(owner, buyer, 'Owner should not be updated');
+    });
+
+    p = p.then(function() {
       return grid.checkPendingWithdrawal({from: buyer});
     }).then(function(pendingAmount) {
-      assert(pendingAmount.valueOf(), price.valueOf(), 'Buyer was not refunded');
-      return grid.withdraw({from: buyer});
+      assert.equal(
+        pendingAmount.valueOf(),
+        price.valueOf(),
+        'Buyer was not refunded',
+      );
     }).then(function() {
+      return grid.withdraw({from: buyer});
+    });
+
+    p = p.then(function() {
       return grid.getPixelColor(2, 2);
     }).then(function(color) {
       assert.notEqual(color.valueOf(), RGB[1], 'Color should not be updated');
     });
+
+    return p;
   });
 
   it('refunds invalid purchase', function() {
@@ -234,40 +292,96 @@ contract('Grid', function(accounts) {
     const price = config.DEFAULT_PRICE;
     let grid;
 
-    return Grid.deployed().then(function(instance) {
+    let p = Grid.deployed().then(function(instance) {
       grid = instance;
-      return grid.buyPixel(config.GRID_SIZE + 1, 0, price, RGB[0], {from: buyer, value: price});
-    }).then(assert.fail).catch(assertVMException).then(function() {
+    });
+
+    // Clear out any existing balance
+    p = p.then(function() {
+      return grid.withdraw({from: buyer});
+    });
+
+    p = p.then(function() {
+      return grid.buyPixel(config.GRID_SIZE + 1, 0, RGB[0], {from: buyer, value: price});
+    }).then(function() {
       return grid.checkPendingWithdrawal({from: buyer});
     }).then(function(pendingAmount) {
-      assert(pendingAmount.valueOf(), price.valueOf(), 'Buyer was not refunded');
+      assert.equal(pendingAmount.valueOf(), price.valueOf(), 'Buyer was not refunded');
     }).then(function() {
       return grid.withdraw({from: buyer});
     });
+
+    return p;
   });
 
   it('handles multiple transactions', function() {
-    const price = config.DEFAULT_PRICE;
+    let price = config.DEFAULT_PRICE;
     let grid;
-    return Grid.deployed().then(function(instance) {
+
+    let p = Grid.deployed().then(function(instance) {
       grid = instance;
-      return grid.buyPixel(4, 4, price.times(2), RGB[1], {from: accounts[3], value: price});
+    });
+
+    // First price increase
+    p = p.then(function() {
+      return grid.buyPixel(4, 4, RGB[1], {from: accounts[3], value: price});
     }).then(function() {
-      return grid.buyPixel(4, 4, price.times(4), RGB[1], {from: accounts[4], value: price.times(2)});
+      return grid.getPixelPrice.call(4, 4);
+    }).then(function(newPrice) {
+      assert.equal(
+        newPrice.valueOf(),
+        price.times(INCREMENT_RATIO).valueOf(),
+        'Price was not automatically adjusted',
+      );
+      price = newPrice;
+    });
+
+    // Second price increase
+    p = p.then(function() {
+      return grid.buyPixel(4, 4, RGB[1], {from: accounts[4], value: price});
     }).then(function() {
-      return grid.setPixelPrice(4, 4, price.times(3), {from:accounts[4]});
+      return grid.getPixelPrice.call(4, 4);
+    }).then(function(newPrice) {
+      assert.equal(
+        newPrice.valueOf(),
+        price.times(INCREMENT_RATIO).valueOf(),
+        'Price was not automatically adjusted',
+      );
+    });
+
+    // New owner lowers the price
+    p = p.then(function() {
+      price = price.times(0.5);
+      return grid.setPixelPrice(4, 4, price, {from: accounts[4]});
     }).then(function() {
-      return grid.buyPixel(4, 4, price.times(3), RGB[1], {from: accounts[5], value: price.times(3)});
+      return grid.buyPixel(4, 4, RGB[1], {from: accounts[5], value: price});
     }).then(function() {
+      return grid.getPixelPrice.call(4, 4);
+    }).then(function(newPrice) {
+      assert.equal(
+        newPrice.valueOf(),
+        price.times(INCREMENT_RATIO).valueOf(),
+        'Price was not automatically adjusted',
+      );
+    });
+
+    // Verify owner
+    p = p.then(function() {
       return grid.getPixelOwner.call(4, 4);
     }).then(function(owner) {
       assert.equal(owner, accounts[5], 'Owner was not updated');
-      return grid.withdraw({from: accounts[4]});
+    });
+
+    // Clean up
+    p = p.then(function() {
+      grid.withdraw({from: accounts[4]});
     }).then(function() {
       return grid.withdraw({from: accounts[3]});
     }).then(function() {
       return grid.withdraw({from: admin});
     });
+
+    return p;
   });
 
   //============================================================================
@@ -281,22 +395,35 @@ contract('Grid', function(accounts) {
     let grid;
     return Grid.deployed().then(function(instance) {
       grid = instance;
-      return grid.buyPixel(5, 5, price, RGB[1], {from: owner, value: price});
+      return grid.buyPixel(5, 5, RGB[1], {from: owner, value: price});
+    }).then(function() {
+      return grid.getPixelPrice(5, 5);
+    }).then(function(newPrice) {
+      assert.equal(
+        newPrice.valueOf(),
+        price.times(INCREMENT_RATIO).valueOf(),
+        'Price was not automatically adjusted',
+      );
     }).then(function() {
       return grid.setPixelPrice(5, 5, price, {from: badActor});
     }).then(assert.fail).catch(assertVMException).then(function() {
-      return grid.setPixelPrice(5, 5, price.times(1.2), {from: owner});
+      return grid.setPixelPrice(5, 5, price, {from: owner});
     }).then(function() {
       return grid.getPixelPrice.call(5, 5);
-    }).then(function(price) {
-      assert(price.valueOf(), price.times(1.2).valueOf(), 'Price was not updated');
-      return grid.setPixelPrice(5, 5, price.times(2.4), {from: owner});
-    }).then(function() {
-      return grid.getPixelPrice.call(5, 5);
-    }).then(function(price) {
-      assert(
+    }).then(function(newPrice) {
+      assert.equal(
+        newPrice.valueOf(),
         price.valueOf(),
-        price.times(2.4).valueOf(),
+        'Price was not updated',
+      );
+    }).then(function() {
+      return grid.setPixelPrice(5, 5, price.times(0.4), {from: owner});
+    }).then(function() {
+      return grid.getPixelPrice.call(5, 5);
+    }).then(function(newPrice) {
+      assert.equal(
+        newPrice.valueOf(),
+        price.times(0.4).valueOf(),
         'Price was not updated',
       );
     });
@@ -325,6 +452,32 @@ contract('Grid', function(accounts) {
     });
   });
 
+  it('does not allow owner to raise price', function() {
+    let grid;
+
+    let p = Grid.deployed().then(function(instance) {
+      grid = instance;
+    });
+
+    p = p.then(function() {
+      const transaction = {from: accounts[2], value: config.DEFAULT_PRICE};
+      return grid.buyPixel(10, 10, RGB[0], transaction);
+    });
+
+    p = p.then(function() {
+      return grid.getPixelOwner(10, 10);
+    }).then(function(owner) {
+      assert.equal(owner, accounts[2], 'Owner was not updated');
+    });
+
+    p = p.then(function() {
+      const newPrice = config.DEFAULT_PRICE.times(1 + INCREMENT_RATIO);
+      return grid.setPixelPrice(10, 10, newPrice, {from: accounts[2]});
+    }).then(assert.fail).catch(assertVMException);
+
+    return p;
+  });
+
   it('allows owner to transfer ownership', function() {
     const price = config.DEFAULT_PRICE;
     let grid;
@@ -335,7 +488,7 @@ contract('Grid', function(accounts) {
 
     // Purchase pixel
     p = p.then(function() {
-      return grid.buyPixel(7, 7, price, RGB[1], {from: accounts[3], value: price});
+      return grid.buyPixel(7, 7, RGB[1], {from: accounts[3], value: price});
     });
 
     // Perform transfer
@@ -363,7 +516,7 @@ contract('Grid', function(accounts) {
 
     // Purchase pixel
     p = p.then(function() {
-      return grid.buyPixel(8, 8, price, RGB[0], {from: accounts[3], value: price});
+      return grid.buyPixel(8, 8, RGB[0], {from: accounts[3], value: price});
     });
 
     // Attempt to perform transfer
