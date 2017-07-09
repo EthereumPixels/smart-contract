@@ -82,17 +82,17 @@ contract Grid {
   }
 
   modifier onlyAdmin {
-    if (msg.sender != admin) throw;
+    require(msg.sender == admin);
     _;
   }
 
   modifier onlyOwner(uint16 row, uint16 col) {
-    if (msg.sender != getPixelOwner(row, col)) throw;
+    require(msg.sender == getPixelOwner(row, col));
     _;
   }
 
   function getKey(uint16 row, uint16 col) constant returns (uint32) {
-    if (row >= size || col >= size) throw;
+    require(row < size && col < size);
     return uint32(row) * size + col;
   }
 
