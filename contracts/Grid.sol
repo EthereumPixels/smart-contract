@@ -1,4 +1,4 @@
-pragma solidity ^0.4.4;
+pragma solidity ^0.4.11;
 
 contract Grid {
   // The account address with admin privilege to this contract
