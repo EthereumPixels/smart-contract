@@ -1,5 +1,7 @@
 pragma solidity ^0.4.11;
 
+import './SafeMath.sol';
+
 contract Grid {
   // The account address with admin privilege to this contract
   // This is also the default owner of all unowned pixels
@@ -93,10 +95,13 @@ contract Grid {
 
   function getKey(uint16 row, uint16 col) constant returns (uint32) {
     require(row < size && col < size);
-    return uint32(row) * size + col;
+    return uint32(SafeMath.add(SafeMath.mul(row, size), col));
   }
 
-  function() payable { }
+  function() payable {
+    // Accept donations
+    users[admin].pendingWithdrawal = SafeMath.add(users[admin].pendingWithdrawal, msg.value);
+  }
 
   //============================================================================
   // Admin API
@@ -164,10 +169,11 @@ contract Grid {
   }
 
   function buyPixel(uint16 row, uint16 col, uint24 newColor) payable {
+    uint balance = users[msg.sender].pendingWithdrawal;
     // Return instead of letting getKey throw here to correctly refund the
     // transaction by updating the user balance in user.pendingWithdrawal
     if (row >= size || col >= size) {
-      users[msg.sender].pendingWithdrawal += msg.value;
+      users[msg.sender].pendingWithdrawal = SafeMath.add(balance, msg.value);
       return;
     }
 
@@ -178,19 +184,23 @@ contract Grid {
     // Return instead of throw here to correctly refund the transaction by
     // updating the user balance in user.pendingWithdrawal
     if (msg.value < price) {
-      users[msg.sender].pendingWithdrawal += msg.value;
+      users[msg.sender].pendingWithdrawal = SafeMath.add(balance, msg.value);
       return;
     }
 
-    uint fee = msg.value / feeRatio;
-    uint payout = msg.value - fee;
+    uint fee = SafeMath.div(msg.value, feeRatio);
+    uint payout = SafeMath.sub(msg.value, fee);
 
-    users[admin].pendingWithdrawal += fee;
-    users[owner].pendingWithdrawal += payout;
-    users[owner].totalSales += payout;
+    uint adminBalance = users[admin].pendingWithdrawal;
+    users[admin].pendingWithdrawal = SafeMath.add(adminBalance, fee);
+
+    uint ownerBalance = users[owner].pendingWithdrawal;
+    users[owner].pendingWithdrawal = SafeMath.add(ownerBalance, payout);
+    users[owner].totalSales = SafeMath.add(users[owner].totalSales, payout);
 
     // Increase the price automatically based on the global incrementRate
-    pixels[key].price = price + (price * incrementRate / 100);
+    uint increase = SafeMath.div(SafeMath.mul(price, incrementRate), 100);
+    pixels[key].price = SafeMath.add(price, increase);
     pixels[key].owner = msg.sender;
 
     PixelTransfer(row, col, price, owner, msg.sender);

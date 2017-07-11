@@ -1,7 +1,10 @@
+const SafeMath = artifacts.require('./SafeMath.sol');
 const Grid = artifacts.require('./Grid.sol');
 const config = require('../config');
 
 module.exports = function(deployer) {
+  deployer.deploy(SafeMath);
+  deployer.link(SafeMath, Grid);
   deployer.deploy(
     Grid,
     config.GRID_SIZE,
