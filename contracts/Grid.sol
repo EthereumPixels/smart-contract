@@ -32,10 +32,6 @@ contract Grid {
     // Number of Wei in total ever credited to the user as a result of a
     // successful sale
     uint totalSales;
-
-    // An optional message that is shown in some parts of the UI and in the
-    // details pane of every owned pixel
-    string message;
   }
 
   struct Pixel {
@@ -57,6 +53,10 @@ contract Grid {
 
   // The state of all users who have transacted with this contract
   mapping(address => User) users;
+
+  // An optional message that is shown in some parts of the UI and in the
+  // details pane of every owned pixel
+  mapping(address => string) messages;
 
   //============================================================================
   // Events
@@ -98,10 +98,7 @@ contract Grid {
     return uint32(SafeMath.add(SafeMath.mul(row, size), col));
   }
 
-  function() payable {
-    // Accept donations
-    users[admin].pendingWithdrawal = SafeMath.add(users[admin].pendingWithdrawal, msg.value);
-  }
+  function() payable {}
 
   //============================================================================
   // Admin API
@@ -145,7 +142,7 @@ contract Grid {
   }
 
   function getUserMessage(address user) constant returns (string) {
-    return users[user].message;
+    return messages[user];
   }
 
   function getUserTotalSales(address user) constant returns (uint) {
@@ -243,7 +240,7 @@ contract Grid {
   //============================================================================
 
   function setUserMessage(string message) {
-    users[msg.sender].message = message;
+    messages[msg.sender] = message;
     UserMessage(msg.sender, message);
   }
 }
